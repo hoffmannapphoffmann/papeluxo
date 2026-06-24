@@ -1,0 +1,32 @@
+# ============================================
+# Papeluxo - .gitignore
+# ============================================
+
+# Credenciais e configurações sensíveis
+.env
+.env.local
+.env.production
+
+# Dados dos containers Docker
+postgres-data/
+redis-data/
+waha-sessions/
+n8n-data/
+traefik-data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
