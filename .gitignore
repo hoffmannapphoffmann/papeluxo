@@ -21,6 +21,13 @@ traefik-data/
 *.swo
 *~
 
+# Arquivos de depuração/sessão temporários
+redis-creds*.json
+redis-credential.json
+redis-import-final.json
+session-*.json
+test-webhook.json
+
 # Sistema
 .DS_Store
 Thumbs.db
