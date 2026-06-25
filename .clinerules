@@ -1,0 +1,31 @@
+# Regras de Segurança — Papeluxo
+
+1. NUNCA escrever valor literal de API key, token, senha, secret ou credencial
+   em qualquer arquivo versionado (workflows/*.json, *.md, *.yml, código-fonte).
+   Isso inclui valores "de teste" ou "temporários" — não existe segredo
+   temporário seguro em arquivo de git.
+
+2. Todo segredo deve viver em UM destes lugares, nunca em outro:
+   - `.env` (já está no .gitignore, nunca remover essa linha)
+   - Redis, lido em runtime por um node Redis GET
+   - n8n Credentials (armazenadas no banco do n8n, não exportadas no JSON)
+
+3. Em qualquer workflow n8n exportado (.json), nodes HTTP Request que
+   precisem de token/key devem:
+   - OU usar uma Credential do n8n (não aparece no JSON exportado)
+   - OU ler o valor via node Redis GET imediatamente antes do HTTP Request
+   - NUNCA ter o valor direto no campo da URL, header ou query parameter
+
+4. Arquivos de exemplo (.env.example, README, documentação) só podem conter
+   placeholders (ex: COLOQUE_SUA_CHAVE_AQUI), nunca valores reais — mesmo
+   que sejam de ambiente de teste/sandbox.
+
+5. Antes de qualquer commit, rodar scripts/check-secrets.sh (ver Tarefa 4)
+   e bloquear o commit se ele encontrar qualquer padrão suspeito.
+
+6. Ao adicionar uma nova integração/API, a primeira pergunta a responder é:
+   "onde esse segredo vai morar?" — antes de escrever qualquer node HTTP.
+
+7. Nunca sugerir, gerar ou aceitar uma solução que "funciona mas deixa a
+   chave hardcoded por enquanto". Resolver direito ou avisar explicitamente
+   que está pendente e por quê.

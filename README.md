@@ -189,6 +189,39 @@ Após configurar tudo, envie uma mensagem para o WhatsApp conectado:
 
 ---
 
+## 🔒 Segurança ao Configurar
+
+### 1. Copie o arquivo de ambiente
+```bash
+cp .env.example .env
+```
+Preencha **todas** as credenciais com valores reais no `.env` (este arquivo NUNCA é versionado — já está no `.gitignore`).
+
+### 2. Importe os workflows e substitua os placeholders
+Os arquivos em `workflows/*.json` contém placeholders **propositadamente** (`COLOQUE_SUA_..._AQUI`). Após importar cada workflow no n8n:
+- Acesse http://localhost:5678
+- Para cada workflow: identifique os placeholders e **substitua dentro do n8n** (painel visual) pelos valores do seu `.env`
+- **NUNCA** substitua os placeholders diretamente nos arquivos `.json` antes de commitar
+
+### 3. Tokens e chaves — onde cada um mora
+| Segredo | Onde vive | Como o n8n lê |
+|---------|-----------|----------------|
+| Gemini API Key | `.env` | Placeholder no workflow → preencher manualmente no n8n |
+| WAHA API Key | `.env` | Placeholder `COLOQUE_SUA_WAHA_API_KEY_AQUI` → preencher no n8n |
+| Tray Consumer Key/Secret | `.env` | Placeholders no token.json → preencher no n8n |
+| Tray Access/Refresh Token | **Redis** | Workflow de token renova a cada 2h30 e salva no Redis; workflow principal lê do Redis via node `Redis GET` |
+
+### 4. Verificação automática de segredos
+Antes de qualquer commit, rode:
+```bash
+bash scripts/check-secrets.sh
+```
+Ou instale o hook de pre-commit (uma vez por clone):
+```bash
+ln -sf ../../scripts/check-secrets.sh .git/hooks/pre-commit
+```
+O hook bloqueia automaticamente commits que contenham chaves, tokens ou senhas reais.
+
 ## 🔒 Segurança
 
 - **NUNCA** versionar o arquivo `.env` (já está no `.gitignore`)
