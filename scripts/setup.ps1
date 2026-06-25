@@ -160,7 +160,7 @@ try {
     $response = Invoke-RestMethod -Uri "http://localhost:3000/api/sessions/" `
         -Method Post `
         -Headers @{
-            "X-Api-Key" = "papelcia2024"
+            "X-Api-Key" = "COLOQUE_SUA_WAHA_API_KEY"
             "Content-Type" = "application/json"
         } `
         -Body $webhookBody `
@@ -173,7 +173,7 @@ try {
     Write-Host ""
     Write-Host "  Comando manual:" -ForegroundColor Gray
     Write-Host '  curl -X POST http://localhost:3000/api/sessions/ \' -ForegroundColor Gray
-    Write-Host '    -H "X-Api-Key: papelcia2024" \' -ForegroundColor Gray
+    Write-Host '    -H "X-Api-Key: COLOQUE_SUA_WAHA_API_KEY" \' -ForegroundColor Gray
     Write-Host '    -H "Content-Type: application/json" \' -ForegroundColor Gray
     Write-Host '    -d "{`"name`":`"default`",`"config`":{`"webhooks`":[{`"url`":`"http://n8n-main:5678/webhook/papelcia-webhook`",`"events`":[`"message`",`"session.status`"]}]}}"' -ForegroundColor Gray
 }
@@ -184,8 +184,8 @@ try {
 Write-Host "[8/8] Inicializando tokens no Redis..." -ForegroundColor Yellow
 
 try {
-    docker exec redis redis-cli SET tray_access_token "APP_ID-8717-STORE_ID-1501119-efce750c4d90f0040c23d86aa9093f23f27564a77bbd8e1d136d3fa97faf9b3f" 2>$null
-    docker exec redis redis-cli SET tray_refresh_token "9fbc331a9a5cf799402f6113a75f9fa9a61db041c0dcfdc4ef1c71c391a777a5" 2>$null
+    docker exec redis redis-cli SET tray_access_token "COLOQUE_SEU_TRAY_ACCESS_TOKEN" 2>$null
+    docker exec redis redis-cli SET tray_refresh_token "COLOQUE_SEU_TRAY_REFRESH_TOKEN" 2>$null
     Write-Host "  ✅ Tokens inicializados no Redis!" -ForegroundColor Green
 } catch {
     Write-Host "  ⚠️  Não foi possível inicializar tokens no Redis." -ForegroundColor Yellow
@@ -208,7 +208,7 @@ Write-Host "  🔧 n8n Editor:     http://localhost:5678" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Credenciais padrão:" -ForegroundColor White
 Write-Host "  Usuário: admin" -ForegroundColor Gray
-Write-Host "  Senha:   papelcia2024" -ForegroundColor Gray
+Write-Host "  Senha:   COLOQUE_SUA_WAHA_API_KEY" -ForegroundColor Gray
 Write-Host ""
 Write-Host "  Próximos passos:" -ForegroundColor Yellow
 Write-Host "  1. Acesse o WAHA Dashboard e escaneie o QR Code" -ForegroundColor Yellow
