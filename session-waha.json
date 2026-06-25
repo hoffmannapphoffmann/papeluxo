@@ -1,0 +1,1 @@
+{"name":"default","config":{"webhooks":[{"url":"http://n8n-main:5678/webhook/papelcia-webhook","events":["message","session.status"]}]}}
