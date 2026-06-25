@@ -1,0 +1,199 @@
+{
+  "name": "Papeluxo - Confirmar Pagamento",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "webhook/tray-payment",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-pagamento",
+      "name": "Webhook - Pagamento Tray",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.2,
+      "position": [250, 300],
+      "webhookId": "tray-payment"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "respond-pagamento",
+      "name": "Respond to Webhook (200 OK)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst status = (body.status || body.payment_status || '').toLowerCase();\nconst order_id = body.order_id || body.id_order || '';\nconst customer_phone = body.customer_phone || body.phone || '';\n\n// Normalizar telefone para chatId\nconst chatId = customer_phone.replace(/\\D/g, '') + '@c.us';\n\n// Status que consideramos como pagamento confirmado\nconst statusAprovados = ['approved', 'paid', 'confirmed', 'completed'];\nconst pagamentoAprovado = statusAprovados.includes(status);\n\nreturn [\n  {\n    json: {\n      status,\n      order_id,\n      chatId,\n      pagamentoAprovado\n    }\n  }\n];"
+      },
+      "id": "code-parse-pagamento",
+      "name": "Code - Parsear Pagamento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.pagamentoAprovado }}",
+              "operation": "equal",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-status-aprovado",
+      "name": "IF - Pagamento Aprovado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {},
+      "id": "noop-nao-aprovado",
+      "name": "STOP (Não aprovado)",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [850, 500]
+    },
+    {
+      "parameters": {
+        "url": "http://waha:3000/api/sendText",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "session",
+              "value": "default"
+            },
+            {
+              "name": "chatId",
+              "value": "={{ $('Code - Parsear Pagamento').item.json.chatId }}"
+            },
+            {
+              "name": "text",
+              "value": "=✅ *Pagamento confirmado!*\n\nSeu pedido #{{ $('Code - Parsear Pagamento').item.json.order_id }} já está sendo processado. 📦\n\nVocê receberá o código de rastreio por e-mail quando for enviado.\n\nObrigado por comprar na Papel & Cia! ✏️"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000,
+          "retryOnFail": true,
+          "maxTries": 3,
+          "waitBetweenTries": 1000
+        }
+      },
+      "id": "http-waha-confirmacao",
+      "name": "HTTP Request - WAHA Confirmação",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "operation": "SET",
+        "key": "=sessao:{{ $('Code - Parsear Pagamento').item.json.chatId }}",
+        "value": "={{ JSON.stringify({\n  etapa: 'finalizado',\n  pedido_id: $('Code - Parsear Pagamento').item.json.order_id,\n  chatId: $('Code - Parsear Pagamento').item.json.chatId\n}) }}",
+        "expire": 86400
+      },
+      "id": "redis-finalizar",
+      "name": "Redis SET - Finalizar Sessão",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1300, 300],
+      "credentials": {
+        "redis": {
+          "id": "kUMv0GjlL2OOV0jf",
+          "name": "redis"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Pagamento Tray": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook (200 OK)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook (200 OK)": {
+      "main": [
+        [
+          {
+            "node": "Code - Parsear Pagamento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code - Parsear Pagamento": {
+      "main": [
+        [
+          {
+            "node": "IF - Pagamento Aprovado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF - Pagamento Aprovado?": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request - WAHA Confirmação",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "STOP (Não aprovado)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request - WAHA Confirmação": {
+      "main": [
+        [
+          {
+            "node": "Redis SET - Finalizar Sessão",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "pinData": {},
+  "versionId": "pagamento-workflow-v2"
+}
