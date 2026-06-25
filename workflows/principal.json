@@ -1,1 +1,2383 @@
-﻿[{"id":"R18wVT4fOUTSSov1","name":"Papeluxo - Workflow Principal","active":true,"nodes":[{"parameters":{"httpMethod":"POST","path":"papelcia-webhook","responseMode":"responseNode","options":{}},"id":"webhook-principal","name":"Webhook - WAHA","type":"n8n-nodes-base.webhook","typeVersion":1.2,"position":[250,300],"webhookId":"papelcia-webhook"},{"parameters":{"options":{}},"id":"respond-200","name":"Respond to Webhook (200 OK)","type":"n8n-nodes-base.respondToWebhook","typeVersion":1,"position":[450,300]},{"parameters":{"conditions":{"boolean":[{"value1":"={{ $('Webhook - WAHA').item.json.payload.fromMe }}","operation":"equal","value2":true}]}},"id":"if-fromme","name":"IF - fromMe?","type":"n8n-nodes-base.if","typeVersion":2,"position":[650,300]},{"parameters":{"conditions":{"string":[{"value1":"={{ $('Webhook - WAHA').item.json.payload.type }}","operation":"notEqual","value2":"chat"}]}},"id":"if-tipo-chat","name":"IF - Tipo Chat?","type":"n8n-nodes-base.if","typeVersion":2,"position":[850,300]},{"parameters":{"operation":"GET","key":"=sessao:{{ $('Webhook - WAHA').item.json.payload.from }}"},"id":"redis-get-sessao","name":"Redis GET - Sessao","type":"n8n-nodes-base.redis","typeVersion":1,"position":[1050,300],"credentials":{"redis":{"id":"Eck2I2N5CxmHac2r","name":"redis"}}},{"parameters":{"jsCode":"const chatId = $('Webhook - WAHA').item.json.payload.from;\nconst body = $('Webhook - WAHA').item.json.payload.body;\n\nlet sessao = {};\nconst redisValue = $input.first() ? $input.first().json.value : null;\n\nif (redisValue) {\n  try {\n    sessao = JSON.parse(redisValue);\n  } catch(e) {\n    sessao = {};\n  }\n}\n\nif (!sessao.etapa) {\n  sessao = {\n    chatId: chatId,\n    nome: null,\n    cpf: null,\n    email: null,\n    cep: null,\n    etapa: 'inicio',\n    similares_exibidos: 0,\n    similares_ids_vistos: [],\n    historico: [],\n    ultimo_produto_consultado: null,\n    ultimo_termo_busca: null,\n    opcoes_frete: [],\n    frete_escolhido: null,\n    pedido_id: null,\n    tray_customer_id: null,\n    erros_consecutivos: 0\n  };\n}\n\nsessao.historico.push({ role: 'user', content: body });\nif (sessao.historico.length > 20) {\n  sessao.historico = sessao.historico.slice(-20);\n}\n\nreturn [{ json: { chatId, body, sessao } }];"},"id":"code-parse-sessao","name":"Code - Parsear/Criar Sessao","type":"n8n-nodes-base.code","typeVersion":2,"position":[1250,300]},{"parameters":{"rules":[{"value":"inicio","conditions":{"string":[{"value1":"={{ $json.sessao.etapa }}","operation":"equals","value2":"inicio"}]}},{"value":"aguardando_produto","conditions":{"string":[{"value1":"={{ $json.sessao.etapa }}","operation":"equals","value2":"aguardando_produto"}]}}]},"id":"switch-etapas","name":"Switch - Etapas","type":"n8n-nodes-base.switch","typeVersion":1,"position":[1450,300]},{"parameters":{},"id":"noop-stop","name":"STOP (Mensagem do Bot)","type":"n8n-nodes-base.noOp","typeVersion":1,"position":[650,500]},{"parameters":{},"id":"noop-nao-chat","name":"STOP (Nao e texto)","type":"n8n-nodes-base.noOp","typeVersion":1,"position":[850,500]},{"parameters":{"jsCode":"const sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\n\nsessao.etapa = 'aguardando_produto';\n\nconst mensagem = 'Ola! Bem-vindo a Papel & Cia!\\n\\nSou o Papeluxo, seu assistente virtual.\\n\\nEsta buscando uma solucao? Em que posso lhe ajudar hoje?';\n\nreturn [{ json: { chatId, sessao, mensagem } }];"},"id":"code-saudacao","name":"Code - Saudacao Inicial","type":"n8n-nodes-base.code","typeVersion":2,"position":[1700,100]},{"parameters":{"url":"http://waha:3000/api/sendText","method":"POST","sendHeaders":true,"headerParameters":{"parameters":[{"name":"X-Api-Key","value":"COLOQUE_SUA_WAHA_API_KEY_AQUI"},{"name":"Content-Type","value":"application/json"}]},"sendBody":true,"bodyParameters":{"parameters":[{"name":"session","value":"default"},{"name":"chatId","value":"={{ $json.chatId }}"},{"name":"text","value":"={{ $json.mensagem }}"}]},"options":{"timeout":30000,"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000}},"id":"http-waha-send-0","name":"HTTP WAHA - Saudacao","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[1900,100]},{"parameters":{"operation":"SET","key":"=sessao:{{ $json.chatId }}","value":"={{ JSON.stringify($json.sessao) }}","expire":86400},"id":"redis-set-0","name":"Redis SET - Sessao","type":"n8n-nodes-base.redis","typeVersion":1,"position":[2100,100],"credentials":{"redis":{"id":"Eck2I2N5CxmHac2r","name":"redis"}}},{"parameters":{"jsCode":"const sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst body = $('Code - Parsear/Criar Sessao').item.json.body;\n\nconst prompt = 'Analise esta mensagem de cliente de papelaria: \"' + body + '\".\\n\\nResponda APENAS com JSON valido:\\n{\\n  \"intencao\": \"buscar_produto\" | \"falar_humano\" | \"confirmar\" | \"negar\" | \"outra\",\\n  \"termo_busca\": \"termo extraido ou null\",\\n  \"confianca\": 0.0 a 1.0\\n}';\n\nreturn [{ json: { prompt, chatId, sessao } }];"},"id":"code-classificar-intencao","name":"Code - Classificar Intencao","type":"n8n-nodes-base.code","typeVersion":2,"position":[1700,250]},{"parameters":{"url":"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=COLOQUE_SUA_GEMINI_API_KEY_AQUI","method":"POST","sendHeaders":true,"headerParameters":{"parameters":[{"name":"Content-Type","value":"application/json"}]},"sendBody":true,"bodyParameters":{"parameters":[{"name":"contents[0].parts[0].text","value":"={{ $json.prompt }}"}]},"options":{"timeout":30000,"retryOnFail":true,"maxTries":2,"waitBetweenTries":1000}},"id":"http-gemini-classificar","name":"HTTP Gemini - Classificar","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[1900,250]},{"parameters":{"jsCode":"const geminiResponse = $input.first().json;\nconst sessao = $('Code - Classificar Intencao').item.json.sessao;\nconst chatId = $('Code - Classificar Intencao').item.json.chatId;\n\nconst texto = geminiResponse.candidates ? geminiResponse.candidates[0].content.parts[0].text : '';\nconst textoLimpo = texto.replace(/```json|```/g, '').trim();\n\nlet resultado;\ntry {\n  resultado = JSON.parse(textoLimpo);\n} catch(e) {\n  resultado = { intencao: 'outra', termo_busca: null, confianca: 0 };\n}\n\nreturn [{ json: { chatId, sessao, intencao: resultado.intencao, termo_busca: resultado.termo_busca, confianca: resultado.confianca } }];"},"id":"code-parse-classificacao","name":"Code - Parsear Classificacao","type":"n8n-nodes-base.code","typeVersion":2,"position":[2100,250]},{"parameters":{"conditions":{"string":[{"value1":"={{ $json.intencao }}","operation":"equals","value2":"falar_humano"}]}},"id":"if-falar-humano","name":"IF - Falar Humano?","type":"n8n-nodes-base.if","typeVersion":2,"position":[2300,200]},{"parameters":{"conditions":{"string":[{"value1":"={{ $json.intencao }}","operation":"notEqual","value2":"buscar_produto"}]}},"id":"if-nao-busca","name":"IF - Nao e Busca?","type":"n8n-nodes-base.if","typeVersion":2,"position":[2300,300]},{"parameters":{"jsCode":"const sessao = $('Code - Parsear Classificacao').item.json.sessao;\nconst chatId = $('Code - Parsear Classificacao').item.json.chatId;\n\nsessao.erros_consecutivos = (sessao.erros_consecutivos || 0) + 1;\n\nlet mensagem;\nlet transferir = false;\n\nif (sessao.erros_consecutivos >= 2) {\n  transferir = true;\n  mensagem = null;\n} else {\n  mensagem = 'Foi mal, sou novo aqui na Papel & Cia... Nao consegui entender. Pode repetir?';\n  sessao.etapa = 'aguardando_produto';\n}\n\nreturn [{ json: { chatId, sessao, mensagem, transferir } }];"},"id":"code-erro-intencao","name":"Code - Erro de Intencao","type":"n8n-nodes-base.code","typeVersion":2,"position":[2500,350]},{"parameters":{"conditions":{"boolean":[{"value1":"={{ $json.transferir }}","operation":"equal","value2":true}]}},"id":"if-transferir-erro","name":"IF - Transferir?","type":"n8n-nodes-base.if","typeVersion":2,"position":[2700,350]},{"parameters":{"operation":"GET","key":"tray_access_token"},"id":"redis-get-tray-token","name":"Redis GET - Tray Token","type":"n8n-nodes-base.redis","typeVersion":1,"position":[2500,200],"credentials":{"redis":{"id":"Eck2I2N5CxmHac2r","name":"redis"}}},{"parameters":{"url":"https://lojatesteintegracaotray.commercesuite.com.br/web_api/products","method":"GET","sendQuery":true,"queryParameters":{"parameters":[{"name":"access_token","value":"={{ $('Redis GET - Tray Token').item.json.value }}"},{"name":"name","value":"={{ $('Code - Parsear Classificacao').item.json.termo_busca }}"},{"name":"limit","value":"5"},{"name":"status","value":"1"}]},"options":{"timeout":30000,"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000}},"id":"http-tray-buscar","name":"HTTP Tray - Buscar Produto","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[2700,400]},{"parameters":{"jsCode":"const sessao = $('Code - Parsear Classificacao').item.json.sessao;\nconst chatId = $('Code - Parsear Classificacao').item.json.chatId;\nconst termo_busca = $('Code - Parsear Classificacao').item.json.termo_busca;\nconst response = $input.first().json;\n\nconst produtos = response.Products || response.data || [];\nconst primeiroProduto = (produtos[0] && produtos[0].Product) ? produtos[0].Product : (produtos[0] || null);\n\nlet mensagem;\n\nif (primeiroProduto && primeiroProduto.id && primeiroProduto.name) {\n  const preco = parseFloat(primeiroProduto.price).toFixed(2).replace('.', ',');\n  mensagem = 'Encontrei isso! 📦\\n\\n*' + primeiroProduto.name + '*\\n💰 Preco: R$ ' + preco + '\\n📊 Estoque: ' + primeiroProduto.stock + ' unidades\\n\\nDeseja adicionar ao carrinho? (Sim/Nao)';\n  sessao.etapa = 'produto_encontrado';\n  sessao.ultimo_produto_consultado = primeiroProduto;\n  sessao.ultimo_termo_busca = termo_busca;\n  sessao.erros_consecutivos = 0;\n  sessao.similares_exibidos = 0;\n  sessao.similares_ids_vistos = [];\n} else {\n  mensagem = 'Nao encontrei \"' + termo_busca + '\". Tente com outro nome ou marca?';\n  sessao.etapa = 'aguardando_produto';\n}\n\nreturn [{ json: { chatId, sessao, mensagem } }];"},"id":"code-parse-produto","name":"Code - Parsear Produto Tray","type":"n8n-nodes-base.code","typeVersion":2,"position":[2900,450]},{"parameters":{"url":"http://waha:3000/api/sendText","method":"POST","sendHeaders":true,"headerParameters":{"parameters":[{"name":"X-Api-Key","value":"COLOQUE_SUA_WAHA_API_KEY_AQUI"},{"name":"Content-Type","value":"application/json"}]},"sendBody":true,"bodyParameters":{"parameters":[{"name":"session","value":"default"},{"name":"chatId","value":"={{ $json.chatId }}"},{"name":"text","value":"={{ $json.mensagem }}"}]},"options":{"timeout":30000,"retryOnFail":true,"maxTries":3,"waitBetweenTries":1000}},"id":"http-waha-send-1","name":"HTTP WAHA - Produto","type":"n8n-nodes-base.httpRequest","typeVersion":4.2,"position":[3100,450]},{"parameters":{"operation":"SET","key":"=sessao:{{ $json.chatId }}","value":"={{ JSON.stringify($json.sessao) }}","expire":86400},"id":"redis-set-1","name":"Redis SET - Produto","type":"n8n-nodes-base.redis","typeVersion":1,"position":[3300,450],"credentials":{"redis":{"id":"Eck2I2N5CxmHac2r","name":"redis"}}}],"connections":{"Webhook - WAHA":{"main":[[{"node":"Respond to Webhook (200 OK)","type":"main","index":0}]]},"Respond to Webhook (200 OK)":{"main":[[{"node":"IF - fromMe?","type":"main","index":0}]]},"IF - fromMe?":{"main":[[{"node":"STOP (Mensagem do Bot)","type":"main","index":0}],[{"node":"IF - Tipo Chat?","type":"main","index":0}]]},"IF - Tipo Chat?":{"main":[[{"node":"STOP (Nao e texto)","type":"main","index":0}],[{"node":"Redis GET - Sessao","type":"main","index":0}]]},"Redis GET - Sessao":{"main":[[{"node":"Code - Parsear/Criar Sessao","type":"main","index":0}]]},"Code - Parsear/Criar Sessao":{"main":[[{"node":"Switch - Etapas","type":"main","index":0}]]},"Switch - Etapas":{"main":[[{"node":"Code - Saudacao Inicial","type":"main","index":0}],[{"node":"Code - Classificar Intencao","type":"main","index":0}]]},"Code - Saudacao Inicial":{"main":[[{"node":"HTTP WAHA - Saudacao","type":"main","index":0}]]},"HTTP WAHA - Saudacao":{"main":[[{"node":"Redis SET - Sessao","type":"main","index":0}]]},"Code - Classificar Intencao":{"main":[[{"node":"HTTP Gemini - Classificar","type":"main","index":0}]]},"HTTP Gemini - Classificar":{"main":[[{"node":"Code - Parsear Classificacao","type":"main","index":0}]]},"Code - Parsear Classificacao":{"main":[[{"node":"IF - Falar Humano?","type":"main","index":0}]]},"IF - Falar Humano?":{"main":[[],[{"node":"IF - Nao e Busca?","type":"main","index":0}]]},"IF - Nao e Busca?":{"main":[[{"node":"Code - Erro de Intencao","type":"main","index":0}],[{"node":"Redis GET - Tray Token","type":"main","index":0}]]},"Code - Erro de Intencao":{"main":[[{"node":"IF - Transferir?","type":"main","index":0}]]},"IF - Transferir?":{"main":[[],[]]},"Redis GET - Tray Token":{"main":[[{"node":"HTTP Tray - Buscar Produto","type":"main","index":0}]]},"HTTP Tray - Buscar Produto":{"main":[[{"node":"Code - Parsear Produto Tray","type":"main","index":0}]]},"Code - Parsear Produto Tray":{"main":[[{"node":"HTTP WAHA - Produto","type":"main","index":0}]]},"HTTP WAHA - Produto":{"main":[[{"node":"Redis SET - Produto","type":"main","index":0}]]}},"settings":{"executionOrder":"v1"},"staticData":null,"pinData":{},"versionId":"principal-v11-secure","tags":[]}]
+[
+  {
+    "id": "R18wVT4fOUTSSov1",
+    "name": "Papeluxo - Workflow Principal",
+    "active": true,
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "papelcia-webhook",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-principal",
+        "name": "Webhook - WAHA",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1.2,
+        "position": [
+          250,
+          300
+        ],
+        "webhookId": "papelcia-webhook"
+      },
+      {
+        "parameters": {
+          "options": {}
+        },
+        "id": "respond-200",
+        "name": "Respond to Webhook (200 OK)",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [
+          450,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{ $('Webhook - WAHA').item.json.payload.fromMe }}",
+                "operation": "equal",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "id": "if-fromme",
+        "name": "IF - fromMe?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          650,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{ $('Webhook - WAHA').item.json.payload.type }}",
+                "operation": "notEqual",
+                "value2": "chat"
+              }
+            ]
+          }
+        },
+        "id": "if-tipo-chat",
+        "name": "IF - Tipo Chat?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          850,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "GET",
+          "key": "=sessao:{{ $('Webhook - WAHA').item.json.payload.from }}"
+        },
+        "id": "redis-get-sessao",
+        "name": "Redis GET - Sessao",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          1050,
+          300
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const chatId = $('Webhook - WAHA').item.json.payload.from;\nconst body = $('Webhook - WAHA').item.json.payload.body;\n\nlet sessao = {};\nconst redisValue = $input.first() ? $input.first().json.value : null;\n\nif (redisValue) {\n  try {\n    sessao = JSON.parse(redisValue);\n  } catch(e) {\n    sessao = {};\n  }\n}\n\nif (!sessao.etapa) {\n  sessao = {\n    chatId: chatId,\n    nome: null,\n    cpf: null,\n    email: null,\n    cep: null,\n    etapa: 'inicio',\n    similares_exibidos: 0,\n    similares_ids_vistos: [],\n    historico: [],\n    ultimo_produto_consultado: null,\n    ultimo_termo_busca: null,\n    opcoes_frete: [],\n    frete_escolhido: null,\n    pedido_id: null,\n    tray_customer_id: null,\n    erros_consecutivos: 0\n  };\n}\n\nsessao.historico.push({ role: 'user', content: body });\nif (sessao.historico.length > 20) {\n  sessao.historico = sessao.historico.slice(-20);\n}\n\nreturn [{ json: { chatId, body, sessao } }];"
+        },
+        "id": "code-parse-sessao",
+        "name": "Code - Parsear/Criar Sessao",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1250,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "rules": [
+            {
+              "value": "inicio",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "inicio"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "aguardando_produto",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "aguardando_produto"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "produto_encontrado",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "produto_encontrado"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "aguardando_quantidade",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "aguardando_quantidade"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "carrinho_ativo",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "carrinho_ativo"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "aguardando_cep",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "aguardando_cep"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "aguardando_frete",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "aguardando_frete"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "aguardando_nome",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "aguardando_nome"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "aguardando_cpf",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "aguardando_cpf"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "aguardando_email",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "aguardando_email"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "confirmando_pedido",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "confirmando_pedido"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "pagamento_pendente",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "pagamento_pendente"
+                  }
+                ]
+              }
+            },
+            {
+              "value": "transferindo_humano",
+              "conditions": {
+                "string": [
+                  {
+                    "value1": "={{ $json.sessao.etapa }}",
+                    "operation": "equals",
+                    "value2": "transferindo_humano"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "id": "switch-etapas",
+        "name": "Switch - Etapas",
+        "type": "n8n-nodes-base.switch",
+        "typeVersion": 1,
+        "position": [
+          1450,
+          300
+        ]
+      },
+      {
+        "parameters": {},
+        "id": "noop-stop",
+        "name": "STOP (Mensagem do Bot)",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          650,
+          500
+        ]
+      },
+      {
+        "parameters": {},
+        "id": "noop-nao-chat",
+        "name": "STOP (Nao e texto)",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          850,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\n\nsessao.etapa = 'aguardando_produto';\n\nconst mensagem = 'Ola! Bem-vindo a Papel & Cia!\\n\\nSou o Papeluxo, seu assistente virtual.\\n\\nEsta buscando uma solucao? Em que posso lhe ajudar hoje?';\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-saudacao",
+        "name": "Code - Saudacao Inicial",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          100
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-0",
+        "name": "HTTP WAHA - Saudacao",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          100
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-0",
+        "name": "Redis SET - Sessao",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          100
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "const sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst body = $('Code - Parsear/Criar Sessao').item.json.body;\n\nconst prompt = 'Analise esta mensagem de cliente de papelaria: \"' + body + '\".\\n\\nResponda APENAS com JSON valido:\\n{\\n  \"intencao\": \"buscar_produto\" | \"falar_humano\" | \"confirmar\" | \"negar\" | \"outra\",\\n  \"termo_busca\": \"termo extraido ou null\",\\n  \"confianca\": 0.0 a 1.0\\n}';\n\nreturn [{ json: { prompt, chatId, sessao } }];"
+        },
+        "id": "code-classificar-intencao",
+        "name": "Code - Classificar Intencao",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          250
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=COLOQUE_SUA_GEMINI_API_KEY_AQUI",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "system_instruction.parts.text",
+                "value": "Voce e o Papeluxo, assistente virtual da Papel & Cia, loja de materiais de escritorio e papelaria em Curitiba-PR.\n\nPERSONALIDADE:\n- Nome: Papeluxo\n- Tom: amigavel, acolhedor, profissional (NUNCA infantil)\n- Use emojis com moderacao: ✏️ 📓 🛒 ✅ 📦\n- Sempre chame o cliente pelo nome quando souber\n- Saudacao padrao: \"Esta buscando uma solucao? Em que posso lhe ajudar hoje?\"\n\nREGRAS ABSOLUTAS:\n1. Nunca invente produtos ou precos — use APENAS dados reais da Tray\n2. Colete dados UM POR VEZ (nunca peca nome + CPF + email juntos)\n3. Voce so CLASSIFICA INTENCAO — o fluxo de etapas e controlado pelo n8n\n4. Quando nao entender apos 2 tentativas, transfira para humano\n5. Maximo 5 produtos similares antes de transferir para humano\n\nINFORMACOES DA EMPRESA:\n- Endereco: Rua Felipe Camarao, 46 - Reboucas, Curitiba-PR\n- CEP: 80.215-040\n- Horario de atendimento humano: Segunda a Sexta, 08h as 18h (almoco 12h as 13h15)\n- WhatsApp para atendimento humano: (41) 99961-6806\n- E-mail: cad@papelecompanhia.com.br\n- Formas de pagamento: Pix, cartao de credito, cartao de debito, boleto bancario\n- Frete: calculado por CEP via transportadoras (Sedex, PAC, Jadlog)\n\nCATEGORIAS DE PRODUTOS:\n- Papelaria e Escritorio: cadernos, canetas, agendas, pastas, etiquetas, carimbos, grampeadores\n- Informatica e Tecnologia: cartuchos, perifericos, cabos, teclados, mouses, armazenamento\n- Limpeza e Higiene: produtos de limpeza, EPIs, descartaveis, papel higienico\n- Embalagens: sacos, sacolas, filmes, caixas\n- Moveis e Estrutura: cadeiras, mesas, armarios, racks\n- Copa e Cozinha: copos, filtros, utensilios, cafe\n\nMENSAGEM PADRAO QUANDO NAO ENTENDE:\n\"Foi mal, sou novo aqui na Papel & Cia... Nao consegui entender o que voce falou. Vou transferir para uma colaboradora te ajudar. ✏️\"\n\nMENSAGEM QUANDO NAO ENCONTRA PRODUTO APOS 5 SIMILARES:\n\"Puxa, nao consegui encontrar nenhum produto que te agradasse. Vou transferir voce para um de nossos especialistas agora mesmo.\"\n\nMENSAGEM AO TRANSFERIR PARA HUMANO:\n\"✅ Atendente avisado! Ele ja sabe o que voce precisa.\n\n📞 Salve este numero e me chame aqui: (41) 99961-6806\n\nQuando chamar, diga 'Sou o [seu nome]' que ele ja vai saber o que voce precisa. 🚀\""
+              },
+              {
+                "name": "contents[0].parts[0].text",
+                "value": "={{ $json.prompt }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 2,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-gemini-classificar",
+        "name": "HTTP Gemini - Classificar",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          250
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const geminiResponse = $input.first().json;\nconst sessao = $('Code - Classificar Intencao').item.json.sessao;\nconst chatId = $('Code - Classificar Intencao').item.json.chatId;\n\nconst texto = geminiResponse.candidates ? geminiResponse.candidates[0].content.parts[0].text : '';\nconst textoLimpo = texto.replace(/```json|```/g, '').trim();\n\nlet resultado;\ntry {\n  resultado = JSON.parse(textoLimpo);\n} catch(e) {\n  resultado = { intencao: 'outra', termo_busca: null, confianca: 0 };\n}\n\nreturn [{ json: { chatId, sessao, intencao: resultado.intencao, termo_busca: resultado.termo_busca, confianca: resultado.confianca } }];"
+        },
+        "id": "code-parse-classificacao",
+        "name": "Code - Parsear Classificacao",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2100,
+          250
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{ $json.intencao }}",
+                "operation": "equals",
+                "value2": "falar_humano"
+              }
+            ]
+          }
+        },
+        "id": "if-falar-humano",
+        "name": "IF - Falar Humano?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          2300,
+          200
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{ $json.intencao }}",
+                "operation": "notEqual",
+                "value2": "buscar_produto"
+              }
+            ]
+          }
+        },
+        "id": "if-nao-busca",
+        "name": "IF - Nao e Busca?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          2300,
+          300
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const sessao = $('Code - Parsear Classificacao').item.json.sessao;\nconst chatId = $('Code - Parsear Classificacao').item.json.chatId;\n\nsessao.erros_consecutivos = (sessao.erros_consecutivos || 0) + 1;\n\nlet mensagem;\nlet transferir = false;\n\nif (sessao.erros_consecutivos >= 2) {\n  transferir = true;\n  mensagem = null;\n  sessao.etapa = 'transferindo_humano';\n} else {\n  mensagem = 'Foi mal, sou novo aqui na Papel & Cia... Nao consegui entender. Pode repetir?';\n  sessao.etapa = 'aguardando_produto';\n}\n\nreturn [{ json: { chatId, sessao, mensagem, transferir } }];"
+        },
+        "id": "code-erro-intencao",
+        "name": "Code - Erro de Intencao",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2500,
+          350
+        ]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "boolean": [
+              {
+                "value1": "={{ $json.transferir }}",
+                "operation": "equal",
+                "value2": true
+              }
+            ]
+          }
+        },
+        "id": "if-transferir-erro",
+        "name": "IF - Transferir?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2,
+        "position": [
+          2700,
+          350
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "GET",
+          "key": "tray_access_token"
+        },
+        "id": "redis-get-tray-token",
+        "name": "Redis GET - Tray Token (Busca)",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2500,
+          200
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://lojatesteintegracaotray.commercesuite.com.br/web_api/products",
+          "method": "GET",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "access_token",
+                "value": "={{ $('Redis GET - Tray Token (Busca)').item.json.value }}"
+              },
+              {
+                "name": "name",
+                "value": "={{ $('Code - Parsear Classificacao').item.json.termo_busca }}"
+              },
+              {
+                "name": "limit",
+                "value": "5"
+              },
+              {
+                "name": "status",
+                "value": "1"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-tray-buscar",
+        "name": "HTTP Tray - Buscar Produto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2700,
+          400
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "const sessao = $('Code - Parsear Classificacao').item.json.sessao;\nconst chatId = $('Code - Parsear Classificacao').item.json.chatId;\nconst termo_busca = $('Code - Parsear Classificacao').item.json.termo_busca;\nconst response = $input.first().json;\n\nconst produtos = response.Products || response.data || [];\nconst primeiroProduto = (produtos[0] && produtos[0].Product) ? produtos[0].Product : (produtos[0] || null);\n\nlet mensagem;\n\nif (primeiroProduto && primeiroProduto.id && primeiroProduto.name) {\n  const preco = parseFloat(primeiroProduto.price || '0').toFixed(2).replace('.', ',');\n  mensagem = 'Encontrei isso! 📦\\n\\n*' + primeiroProduto.name + '*\\n💰 Preco: R$ ' + preco + '\\n📊 Estoque: ' + (primeiroProduto.stock || '0') + ' unidades\\n\\nDeseja adicionar ao carrinho? (Sim/Nao)';\n  sessao.etapa = 'produto_encontrado';\n  sessao.ultimo_produto_consultado = primeiroProduto;\n  sessao.ultimo_termo_busca = termo_busca;\n  sessao.erros_consecutivos = 0;\n  sessao.similares_exibidos = 0;\n  sessao.similares_ids_vistos = [];\n} else {\n  mensagem = 'Nao encontrei \"' + termo_busca + '\". Tente com outro nome ou marca?';\n  sessao.etapa = 'aguardando_produto';\n}\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-parse-produto",
+        "name": "Code - Parsear Produto Tray",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2900,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-1",
+        "name": "HTTP WAHA - Produto",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          3100,
+          450
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-1",
+        "name": "Redis SET - Produto",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          3300,
+          450
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Confirmar Carrinho — etapa: produto_encontrado\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst body = $('Code - Parsear/Criar Sessao').item.json.body;\n\nconst prompt = 'O cliente respondeu: \"' + body + '\" sobre adicionar o produto ao carrinho. Classifique APENAS como JSON: {\"intencao\": \"confirmar\"|\"negar\"|\"outra\", \"confianca\": 0.0 a 1.0}';\n\nreturn [{ json: { prompt, chatId, sessao } }];"
+        },
+        "id": "code-confirmar-carrinho",
+        "name": "Code - Confirmar Carrinho",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=COLOQUE_SUA_GEMINI_API_KEY_AQUI",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "contents[0].parts[0].text",
+                "value": "={{ $json.prompt }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 2,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-gemini-confirmar",
+        "name": "HTTP Gemini - Confirmar",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Parsear confirmação do Gemini\nconst geminiResponse = $input.first().json;\nconst sessao = $('Code - Confirmar Carrinho').item.json.sessao;\nconst chatId = $('Code - Confirmar Carrinho').item.json.chatId;\n\nconst texto = geminiResponse.candidates ? geminiResponse.candidates[0].content.parts[0].text : '';\nconst textoLimpo = texto.replace(/```json|```/g, '').trim();\n\nlet resultado;\ntry {\n  resultado = JSON.parse(textoLimpo);\n} catch(e) {\n  resultado = { intencao: 'outra', confianca: 0 };\n}\n\nlet mensagem;\nif (resultado.intencao === 'negar') {\n  sessao.similares_exibidos = (sessao.similares_exibidos || 0) + 1;\n  if (sessao.similares_exibidos >= 5) {\n    sessao.etapa = 'transferindo_humano';\n    mensagem = 'Puxa, nao consegui encontrar nenhum produto que te agradasse. Vou transferir voce para um de nossos especialistas agora mesmo.';\n  } else {\n    mensagem = 'Entendi! Vou buscar outro produto similar para voce. Aguarde um instante...';\n    sessao.etapa = 'aguardando_produto';\n  }\n} else {\n  sessao.etapa = 'aguardando_quantidade';\n  mensagem = 'Quantas unidades voce deseja? 📦';\n}\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-parse-confirmacao",
+        "name": "Code - Parsear Confirmacao",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2100,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-confirm",
+        "name": "HTTP WAHA - Confirmar",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2300,
+          500
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-confirm",
+        "name": "Redis SET - Confirmar",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2500,
+          500
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Processar Quantidade — etapa: aguardando_quantidade\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst body = $('Code - Parsear/Criar Sessao').item.json.body;\nconst match = body.match(/\\d+/);\nconst qtd = match ? parseInt(match[0]) : 1;\n\nconst produto = sessao.ultimo_produto_consultado;\nconst preco = parseFloat(produto.price || '0');\nconst item = {\n  product_id: produto.id,\n  nome: produto.name,\n  preco: preco,\n  quantidade: qtd,\n  subtotal: preco * qtd\n};\n\nconst subtotalFormatado = item.subtotal.toFixed(2).replace('.', ',');\nconst mensagem = '✅ Adicionado ao carrinho!\\n\\n📦 ' + item.nome + ' × ' + qtd + ' = R$ ' + subtotalFormatado + '\\n\\nDeseja adicionar mais algum produto? (Sim/Nao)';\n\nsessao.etapa = 'carrinho_ativo';\n\nreturn [{ json: { chatId, sessao, mensagem, item } }];"
+        },
+        "id": "code-processar-quantidade",
+        "name": "Code - Processar Quantidade",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          650
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-qtd",
+        "name": "HTTP WAHA - Quantidade",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          650
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-qtd",
+        "name": "Redis SET - Quantidade",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          650
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=carrinho:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify([$json.item]) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-carrinho-ini",
+        "name": "Redis SET - Carrinho Inicial",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          750
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Mais Produtos ou Frete — etapa: carrinho_ativo\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst body = $('Code - Parsear/Criar Sessao').item.json.body;\n\nconst resp = body.toLowerCase();\nconst sim = resp.includes('sim') || resp === 's' || resp === '1';\n\nlet mensagem;\nif (sim) {\n  sessao.etapa = 'aguardando_produto';\n  mensagem = 'Qual outro produto voce procura?';\n} else {\n  sessao.etapa = 'aguardando_cep';\n  mensagem = 'Para calcular o frete, preciso do seu CEP. 📦\\nQual e o seu CEP?';\n}\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-mais-produtos-frete",
+        "name": "Code - Mais Produtos ou Frete",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          800
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-frete-ask",
+        "name": "HTTP WAHA - Frete Ask",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          800
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-carrinho",
+        "name": "Redis SET - Carrinho",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          800
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Validar CEP — etapa: aguardando_cep\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst body = $('Code - Parsear/Criar Sessao').item.json.body;\nconst cep = body.replace(/\\D/g, '');\n\nlet cepValido = cep.length === 8;\nlet mensagem = cepValido ? null : 'CEP invalido. Informe os 8 digitos do CEP:';\n\nreturn [{ json: { chatId, sessao, cep, cepValido, mensagem } }];"
+        },
+        "id": "code-validar-cep",
+        "name": "Code - Validar CEP",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          950
+        ]
+      },
+      {
+        "parameters": {
+          "url": "https://viacep.com.br/ws/={{ $json.cep }}/json/",
+          "method": "GET",
+          "options": {
+            "timeout": 15000,
+            "retryOnFail": true,
+            "maxTries": 2,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-viacep",
+        "name": "HTTP ViaCEP",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          950
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "GET",
+          "key": "tray_access_token"
+        },
+        "id": "redis-get-tray-token-2",
+        "name": "Redis GET - Tray Token (Frete)",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          950
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://lojatesteintegracaotray.commercesuite.com.br/web_api/shippings/cotation/",
+          "method": "GET",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "access_token",
+                "value": "={{ $('Redis GET - Tray Token (Frete)').item.json.value }}"
+              },
+              {
+                "name": "zipcode",
+                "value": "={{ $('Code - Validar CEP').item.json.cep }}"
+              },
+              {
+                "name": "products_id[]",
+                "value": "={{ $('Code - Validar CEP').item.json.sessao.ultimo_produto_consultado.id }}"
+              },
+              {
+                "name": "products_quantity[]",
+                "value": "1"
+              },
+              {
+                "name": "products_price[]",
+                "value": "={{ $('Code - Validar CEP').item.json.sessao.ultimo_produto_consultado.price }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-tray-cotacao",
+        "name": "HTTP Tray - Cotacao Frete",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2300,
+          950
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Formatar opcoes de frete\nconst sessao = $('Code - Validar CEP').item.json.sessao;\nconst chatId = $('Code - Validar CEP').item.json.chatId;\nconst viaCep = $('HTTP ViaCEP').item.json;\nconst cotacao = $input.first().json;\n\nconst cidade = viaCep.localidade || 'sua cidade';\nconst uf = viaCep.uf || '';\nconst shipping = cotacao.Quotation?.shipping || cotacao.shipping || [];\n\nif (shipping.length === 0) {\n  return [{ json: { chatId, sessao, mensagem: 'Nao encontrei opcoes de frete para este CEP. Tente outro CEP:', erroFrete: true } }];\n}\n\nconst opcoes = shipping.map((s, i) => {\n  const preco = parseFloat(s.price || '0').toFixed(2).replace('.', ',');\n  const dias = s.deadline || '?';\n  const diaTexto = dias === '1' ? 'dia util' : 'dias uteis';\n  return (i+1) + '. ' + s.name + ': R$ ' + preco + ' (' + dias + ' ' + diaTexto + ')';\n}).join('\\n');\n\nconst mensagem = '📦 Opcoes de frete para ' + cidade + '/' + uf + ':\\n\\n' + opcoes + '\\n\\nQual opcao prefere? Digite o numero (1, 2, 3...):';\n\nsessao.etapa = 'aguardando_frete';\nsessao.opcoes_frete = shipping;\nsessao.cep = $('Code - Validar CEP').item.json.cep;\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-formatar-frete",
+        "name": "Code - Formatar Frete",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2500,
+          950
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-frete",
+        "name": "HTTP WAHA - Frete",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2700,
+          950
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-frete",
+        "name": "Redis SET - Frete",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2900,
+          950
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Escolher Frete — etapa: aguardando_frete\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst body = $('Code - Parsear/Criar Sessao').item.json.body;\nconst match = body.match(/\\d+/);\nconst numero = match ? parseInt(match[0]) - 1 : 0;\n\nconst opcoes = sessao.opcoes_frete || [];\nconst freteEscolhido = opcoes[numero] || opcoes[0];\n\nsessao.frete_escolhido = freteEscolhido;\nsessao.etapa = 'aguardando_nome';\n\nconst precoFrete = parseFloat(freteEscolhido.price || '0').toFixed(2).replace('.', ',');\nconst mensagem = '✅ Frete escolhido: ' + freteEscolhido.name + ' — R$ ' + precoFrete + '\\n\\nAgora preciso dos seus dados para a nota fiscal.\\n\\nQual e o seu **nome completo**?';\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-escolher-frete",
+        "name": "Code - Escolher Frete",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          1100
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-nome-ask",
+        "name": "HTTP WAHA - Nome Ask",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          1100
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-nome",
+        "name": "Redis SET - Nome",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          1100
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Validar Nome — etapa: aguardando_nome\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst nome = $('Code - Parsear/Criar Sessao').item.json.body.trim();\n\nif (nome.length < 3) {\n  sessao.etapa = 'aguardando_nome';\n  return [{ json: { chatId, sessao, mensagem: 'Por favor, informe seu nome completo:' } }];\n}\n\nsessao.nome = nome;\nsessao.etapa = 'aguardando_cpf';\nconst mensagem = 'Obrigado, ' + nome + '! 😊\\n\\nAgora preciso do seu CPF (apenas numeros):';\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-validar-nome",
+        "name": "Code - Validar Nome",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          1250
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-cpf-ask",
+        "name": "HTTP WAHA - CPF Ask",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          1250
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-cpf",
+        "name": "Redis SET - CPF",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          1250
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Validar CPF — etapa: aguardando_cpf\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst cpf = $('Code - Parsear/Criar Sessao').item.json.body.replace(/\\D/g, '');\n\nif (cpf.length !== 11) {\n  sessao.etapa = 'aguardando_cpf';\n  return [{ json: { chatId, sessao, mensagem: 'CPF invalido. Informe apenas os 11 numeros:' } }];\n}\n\nsessao.cpf = cpf;\nsessao.etapa = 'aguardando_email';\nconst mensagem = 'Perfeito! E seu e-mail para envio da nota fiscal:';\n\nreturn [{ json: { chatId, sessao, mensagem } }];"
+        },
+        "id": "code-validar-cpf",
+        "name": "Code - Validar CPF",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          1400
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-email-ask",
+        "name": "HTTP WAHA - Email Ask",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          1400
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-email",
+        "name": "Redis SET - Email",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          1400
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Validar Email — etapa: aguardando_email\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\nconst email = $('Code - Parsear/Criar Sessao').item.json.body.trim().toLowerCase();\n\nif (!email.includes('@') || !email.includes('.')) {\n  sessao.etapa = 'aguardando_email';\n  return [{ json: { chatId, sessao, mensagem: 'E-mail invalido. Tente novamente:' } }];\n}\n\nsessao.email = email;\nsessao.etapa = 'confirmando_pedido';\n\nreturn [{ json: { chatId, sessao, mensagem: null } }];"
+        },
+        "id": "code-validar-email",
+        "name": "Code - Validar Email",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          1550
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "GET",
+          "key": "tray_access_token"
+        },
+        "id": "redis-get-tray-token-3",
+        "name": "Redis GET - Tray Token (Pedido)",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          1900,
+          1550
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "url": "https://lojatesteintegracaotray.commercesuite.com.br/web_api/customers",
+          "method": "GET",
+          "sendQuery": true,
+          "queryParameters": {
+            "parameters": [
+              {
+                "name": "access_token",
+                "value": "={{ $('Redis GET - Tray Token (Pedido)').item.json.value }}"
+              },
+              {
+                "name": "cpf",
+                "value": "={{ $('Code - Validar Email').item.json.sessao.cpf }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-tray-customer",
+        "name": "HTTP Tray - Verificar Cliente",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2100,
+          1550
+        ]
+      },
+      {
+        "parameters": {
+          "jsCode": "// Criar Pedido — etapa: confirmando_pedido\nconst sessao = $('Code - Validar Email').item.json.sessao;\nconst chatId = $('Code - Validar Email').item.json.chatId;\nconst response = $input.first().json;\n\nconst clientes = response.Customers || [];\nlet tray_customer_id;\n\nif (clientes.length > 0 && clientes[0].Customer) {\n  tray_customer_id = clientes[0].Customer.id;\n} else {\n  tray_customer_id = null;\n}\n\nsessao.tray_customer_id = tray_customer_id;\nsessao.etapa = 'pagamento_pendente';\n\nreturn [{ json: { chatId, sessao, tray_customer_id, precisaCriarCliente: !tray_customer_id } }];"
+        },
+        "id": "code-criar-pedido",
+        "name": "Code - Criar Pedido",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          2300,
+          1550
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "=✅ Pedido em processamento! Em breve voce recebera o link de pagamento. 📦"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-pedido",
+        "name": "HTTP WAHA - Pedido",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2500,
+          1550
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-pedido",
+        "name": "Redis SET - Pedido",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2700,
+          1550
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Aguardando Pagamento — etapa: pagamento_pendente\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\n\nreturn [{ json: { chatId, sessao, mensagem: null } }];"
+        },
+        "id": "code-ag-pagamento",
+        "name": "Code - Aguardando Pagamento",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          1700
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "SET",
+          "key": "=sessao:{{ $json.chatId }}",
+          "value": "={{ JSON.stringify($json.sessao) }}",
+          "expire": 86400
+        },
+        "id": "redis-set-pagamento",
+        "name": "Redis SET - Pagamento",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          1900,
+          1700
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// Transferir para Humano\nconst sessao = $('Code - Parsear/Criar Sessao').item.json.sessao;\nconst chatId = $('Code - Parsear/Criar Sessao').item.json.chatId;\n\nconst nomeCliente = sessao.nome || '(nao informado)';\n\nconst msgCliente = '✅ *Atendente avisado!*\\n\\nEle ja sabe o que voce precisa.\\n\\n📞 *Salve este numero e me chame aqui:* (41) 99961-6806\\n\\nQuando chamar, diga *\"Sou o ' + nomeCliente + '\"* que ele ja vai saber o que voce precisa. 🚀';\n\nreturn [{ json: { chatId, sessao, mensagem: msgCliente } }];"
+        },
+        "id": "code-transferir",
+        "name": "Code - Transferir para Humano",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1700,
+          1850
+        ]
+      },
+      {
+        "parameters": {
+          "url": "http://waha:3000/api/sendText",
+          "method": "POST",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "X-Api-Key",
+                "value": "COLOQUE_SUA_WAHA_API_KEY_AQUI"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "bodyParameters": {
+            "parameters": [
+              {
+                "name": "session",
+                "value": "default"
+              },
+              {
+                "name": "chatId",
+                "value": "={{ $json.chatId }}"
+              },
+              {
+                "name": "text",
+                "value": "={{ $json.mensagem }}"
+              }
+            ]
+          },
+          "options": {
+            "timeout": 30000,
+            "retryOnFail": true,
+            "maxTries": 3,
+            "waitBetweenTries": 1000
+          }
+        },
+        "id": "http-waha-send-transferir",
+        "name": "HTTP WAHA - Transferir",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1900,
+          1850
+        ]
+      },
+      {
+        "parameters": {
+          "operation": "DELETE",
+          "key": "=sessao:{{ $json.chatId }}"
+        },
+        "id": "redis-del-sessao",
+        "name": "Redis DEL - Sessao",
+        "type": "n8n-nodes-base.redis",
+        "typeVersion": 1,
+        "position": [
+          2100,
+          1850
+        ],
+        "credentials": {
+          "redis": {
+            "id": "Eck2I2N5CxmHac2r",
+            "name": "redis"
+          }
+        }
+      }
+    ],
+    "connections": {
+      "Webhook - WAHA": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook (200 OK)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Respond to Webhook (200 OK)": {
+        "main": [
+          [
+            {
+              "node": "IF - fromMe?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - fromMe?": {
+        "main": [
+          [
+            {
+              "node": "STOP (Mensagem do Bot)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "IF - Tipo Chat?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Tipo Chat?": {
+        "main": [
+          [
+            {
+              "node": "STOP (Nao e texto)",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Redis GET - Sessao",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis GET - Sessao": {
+        "main": [
+          [
+            {
+              "node": "Code - Parsear/Criar Sessao",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parsear/Criar Sessao": {
+        "main": [
+          [
+            {
+              "node": "Switch - Etapas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Switch - Etapas": {
+        "main": [
+          [
+            {
+              "node": "Code - Saudacao Inicial",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Classificar Intencao",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Confirmar Carrinho",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Processar Quantidade",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Mais Produtos ou Frete",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Validar CEP",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Escolher Frete",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Validar Nome",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Validar CPF",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Validar Email",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Criar Pedido",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Aguardando Pagamento",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Code - Transferir para Humano",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Saudacao Inicial": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Saudacao",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Saudacao": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Sessao",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Classificar Intencao": {
+        "main": [
+          [
+            {
+              "node": "HTTP Gemini - Classificar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP Gemini - Classificar": {
+        "main": [
+          [
+            {
+              "node": "Code - Parsear Classificacao",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parsear Classificacao": {
+        "main": [
+          [
+            {
+              "node": "IF - Falar Humano?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Falar Humano?": {
+        "main": [
+          [
+            {
+              "node": "Code - Transferir para Humano",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "IF - Nao e Busca?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Nao e Busca?": {
+        "main": [
+          [
+            {
+              "node": "Code - Erro de Intencao",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Redis GET - Tray Token (Busca)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Erro de Intencao": {
+        "main": [
+          [
+            {
+              "node": "IF - Transferir?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "IF - Transferir?": {
+        "main": [
+          [
+            {
+              "node": "Code - Transferir para Humano",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "HTTP WAHA - Produto",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis GET - Tray Token (Busca)": {
+        "main": [
+          [
+            {
+              "node": "HTTP Tray - Buscar Produto",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP Tray - Buscar Produto": {
+        "main": [
+          [
+            {
+              "node": "Code - Parsear Produto Tray",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parsear Produto Tray": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Produto",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Produto": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Produto",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Confirmar Carrinho": {
+        "main": [
+          [
+            {
+              "node": "HTTP Gemini - Confirmar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP Gemini - Confirmar": {
+        "main": [
+          [
+            {
+              "node": "Code - Parsear Confirmacao",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Parsear Confirmacao": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Confirmar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Confirmar": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Confirmar",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Processar Quantidade": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Quantidade",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Quantidade": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Quantidade",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis SET - Quantidade": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Carrinho Inicial",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Mais Produtos ou Frete": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Frete Ask",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Frete Ask": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Carrinho",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Validar CEP": {
+        "main": [
+          [
+            {
+              "node": "HTTP ViaCEP",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP ViaCEP": {
+        "main": [
+          [
+            {
+              "node": "Redis GET - Tray Token (Frete)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis GET - Tray Token (Frete)": {
+        "main": [
+          [
+            {
+              "node": "HTTP Tray - Cotacao Frete",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP Tray - Cotacao Frete": {
+        "main": [
+          [
+            {
+              "node": "Code - Formatar Frete",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Formatar Frete": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Frete",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Frete": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Frete",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Escolher Frete": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Nome Ask",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Nome Ask": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Nome",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Validar Nome": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - CPF Ask",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - CPF Ask": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - CPF",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Validar CPF": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Email Ask",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Email Ask": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Validar Email": {
+        "main": [
+          [
+            {
+              "node": "Redis GET - Tray Token (Pedido)",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Redis GET - Tray Token (Pedido)": {
+        "main": [
+          [
+            {
+              "node": "HTTP Tray - Verificar Cliente",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP Tray - Verificar Cliente": {
+        "main": [
+          [
+            {
+              "node": "Code - Criar Pedido",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Criar Pedido": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Pedido",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Pedido": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Pedido",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Aguardando Pagamento": {
+        "main": [
+          [
+            {
+              "node": "Redis SET - Pagamento",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code - Transferir para Humano": {
+        "main": [
+          [
+            {
+              "node": "HTTP WAHA - Transferir",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "HTTP WAHA - Transferir": {
+        "main": [
+          [
+            {
+              "node": "Redis DEL - Sessao",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "pinData": {},
+    "versionId": "principal-v12-completo",
+    "tags": []
+  }
+]
